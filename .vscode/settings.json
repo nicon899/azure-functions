@@ -1,0 +1,12 @@
+{
+    "workbench.colorCustomizations": {
+        "activityBar.background": "#5D0F0B",
+        "titleBar.activeBackground": "#821510",
+        "titleBar.activeForeground": "#FFFCFB"
+    },
+    "azureFunctions.deploySubpath": "bin/Release/net6.0/publish",
+    "azureFunctions.projectLanguage": "C#",
+    "azureFunctions.projectRuntime": "~4",
+    "debug.internalConsoleOptions": "neverOpen",
+    "azureFunctions.preDeployTask": "publish (functions)"
+}
