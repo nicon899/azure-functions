@@ -1,49 +1,39 @@
 using System;
 using System.IO;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using System.Data;
 using System.Data.SqlClient;
-using System.Threading.Tasks;
 using Microsoft.Azure.Services.AppAuthentication;
+using System.Threading.Tasks;
 
 namespace ETL
 {
     public static class ETL_JSM
     {
         [FunctionName("ETL_JSM")]
-        public static async Task<IActionResult> Run([TimerTrigger("0 */5 * * * *")] TimerInfo myTimer, ILogger log, ExecutionContext context)
+        public static async Task Run([TimerTrigger("0 20 * * * *")] TimerInfo myTimer, ILogger log, ExecutionContext context)
         {
             var tokenProvider = new AzureServiceTokenProvider();
             string accessToken = await tokenProvider.GetAccessTokenAsync("https://database.windows.net/");
-
-            string[] entities = new string[] { "company", "contact", "platform", "productFamily", "productLine", "productVersionPlatform", "productVersion", "region" };
-            foreach (string entity in entities)
+            string entity = "issue";
+            string sqlPath = Path.Combine(context.FunctionAppDirectory, "sql", $"{entity}.sql");
+            string sqlQuery = File.ReadAllText(sqlPath);
+            log.LogInformation($"Start ETL process for entity: {entity}");
+            try
             {
-                string sqlPath = Path.Combine(context.FunctionAppDirectory, "sql", $"{entity}.sql");
-                string sqlQuery = File.ReadAllText(sqlPath);
-                log.LogInformation($"Start ETL process for entity: {entity}");
-                DateTime lastUpdate;
-                try
-                {
-                    lastUpdate = getLastUpdateOfEntity(entity, accessToken);
-                    log.LogInformation($"Last update of {entity}: {lastUpdate}");
-                    DataTable dataFromSource = extractDataFromSource(entity, sqlQuery, lastUpdate);
-                    log.LogInformation($"Extracted data for {entity}");
-                    loadDataToDWH(dataFromSource, entity, accessToken);
-                    log.LogInformation($"Completed ETL for {entity}");
-                }
-                catch (SqlException ex)
-                {
-                    log.LogError(ex, $"ERROR execution ETL for {entity}");
-                }
+                DateTime lastUpdate = getLastUpdateOfEntity(entity, accessToken);
+                log.LogInformation($"Last update of {entity}: {lastUpdate}");
+                DataTable dataFromSource = extractDataFromSource(entity, sqlQuery, lastUpdate);
+                log.LogInformation($"Extracted data for {entity}");
+                loadDataToDWH(dataFromSource, entity, accessToken);
+                log.LogInformation($"Completed ETL for {entity}");
             }
-            return new OkObjectResult("Response");
+            catch (SqlException ex)
+            {
+                log.LogError(ex, $"ERROR execution ETL for {entity}; ExceptionMessage: ${ex.ToString()}");
+            }
+
         }
 
         public static DateTime getLastUpdateOfEntity(string tableName, string accessToken)
@@ -94,6 +84,7 @@ namespace ETL
                 string sqlCreateTmpTable = $"SELECT TOP 0 * INTO #tmp{tableName} FROM {tableName}";
                 using (SqlCommand cmd = new SqlCommand(sqlCreateTmpTable, conn))
                 {
+                    cmd.CommandTimeout = 3600;
                     cmd.ExecuteNonQuery();
                 }
 
@@ -105,9 +96,10 @@ namespace ETL
                 }
 
                 // update table
-                string sqlUpdateTable = $"BEGIN TRANSACTION; DELETE FROM {tableName} WHERE ID IN (SELECT ID FROM #tmp{tableName}); INSERT INTO {tableName} SELECT * FROM #tmp{tableName}; COMMIT TRANSACTION; DROP TABLE #tmp{tableName}";
+                string sqlUpdateTable = $"BEGIN TRANSACTION; DELETE FROM {tableName} WHERE IssueID IN (SELECT IssueID FROM #tmp{tableName}); INSERT INTO {tableName} SELECT * FROM #tmp{tableName}; COMMIT TRANSACTION; DROP TABLE #tmp{tableName}";
                 using (SqlCommand cmd = new SqlCommand(sqlUpdateTable, conn))
                 {
+                    cmd.CommandTimeout = 3600;
                     cmd.ExecuteNonQuery();
                 }
             }

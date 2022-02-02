@@ -1,37 +1,31 @@
 using System;
 using System.IO;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using System.Data;
 using System.Data.SqlClient;
-using System.Threading.Tasks;
 using Microsoft.Azure.Services.AppAuthentication;
+using System.Threading.Tasks;
 
 namespace ETL
 {
     public static class ETL_Insight
     {
         [FunctionName("ETL_Insight")]
-        public static async Task<IActionResult> Run([TimerTrigger("0 */5 * * * *")]TimerInfo myTimer, ILogger log, ExecutionContext context)
+        public static async Task Run([TimerTrigger("0 30 * * * *")] TimerInfo myTimer, ILogger log, ExecutionContext context)
         {
             var tokenProvider = new AzureServiceTokenProvider();
             string accessToken = await tokenProvider.GetAccessTokenAsync("https://database.windows.net/");
 
-            string[] entities = new string[] { "company", "contact", "platform", "productFamily", "productLine", "productVersionPlatform", "productVersion", "region" };
+            string[] entities = new string[] { "region", "company", "product", "productFamily", "productLine", "platform", "productVersion", "productVersionPlatform", "contact" };
             foreach (string entity in entities)
             {
                 string sqlPath = Path.Combine(context.FunctionAppDirectory, "sql", $"{entity}.sql");
                 string sqlQuery = File.ReadAllText(sqlPath);
                 log.LogInformation($"Start ETL process for entity: {entity}");
-                long lastUpdate;
                 try
                 {
-                    lastUpdate = getLastUpdateOfEntity(entity, accessToken);
+                    long lastUpdate = getLastUpdateOfEntity(entity, accessToken);
                     log.LogInformation($"Last update of {entity}: {lastUpdate}");
                     DataTable dataFromSource = extractDataFromSource(entity, sqlQuery, lastUpdate);
                     log.LogInformation($"Extracted data for {entity}");
@@ -40,10 +34,9 @@ namespace ETL
                 }
                 catch (SqlException ex)
                 {
-                    log.LogError(ex, $"ERROR execution ETL for {entity}");
+                    log.LogError(ex, $"ERROR execution ETL for {entity}; ExceptionMessage: ${ex.ToString()}");
                 }
             }
-            return new OkObjectResult("Response");
         }
 
         public static long getLastUpdateOfEntity(string tableName, string accessToken)
@@ -97,6 +90,7 @@ namespace ETL
                 string sqlCreateTmpTable = $"SELECT TOP 0 * INTO #tmp{tableName} FROM {tableName}";
                 using (SqlCommand cmd = new SqlCommand(sqlCreateTmpTable, conn))
                 {
+                    cmd.CommandTimeout = 3600;
                     cmd.ExecuteNonQuery();
                 }
 
@@ -111,6 +105,7 @@ namespace ETL
                 string sqlUpdateTable = $"BEGIN TRANSACTION; DELETE FROM {tableName} WHERE ID IN (SELECT ID FROM #tmp{tableName}); INSERT INTO {tableName} SELECT * FROM #tmp{tableName}; COMMIT TRANSACTION; DROP TABLE #tmp{tableName}";
                 using (SqlCommand cmd = new SqlCommand(sqlUpdateTable, conn))
                 {
+                    cmd.CommandTimeout = 3600;
                     cmd.ExecuteNonQuery();
                 }
             }
