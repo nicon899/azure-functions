@@ -10,14 +10,14 @@ using Newtonsoft.Json;
 using System.Data;
 using System.Data.SqlClient;
 using System.Threading.Tasks;
+using Microsoft.Azure.Services.AppAuthentication;
 
 namespace ETL
 {
     public static class ETL_JSM
     {
         [FunctionName("ETL_JSM")]
-         public static async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
-            ILogger log, ExecutionContext context)
+        public static async Task<IActionResult> Run([TimerTrigger("0 */5 * * * *")] TimerInfo myTimer, ILogger log, ExecutionContext context)
         {
             var tokenProvider = new AzureServiceTokenProvider();
             string accessToken = await tokenProvider.GetAccessTokenAsync("https://database.windows.net/");
@@ -57,7 +57,7 @@ namespace ETL
                 using (SqlCommand cmd = new SqlCommand(sqlQuery, conn))
                 {
                     object lastUpdateObj = cmd.ExecuteScalar();
-                    lastUpdateDateTime = (DateTime) lastUpdateObj;
+                    lastUpdateDateTime = (DateTime)lastUpdateObj;
                     return lastUpdateDateTime;
                 }
             }

@@ -17,8 +17,7 @@ namespace ETL
     public static class ETL_Insight
     {
         [FunctionName("ETL_Insight")]
-        public static async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
-            ILogger log, ExecutionContext context)
+        public static async Task<IActionResult> Run([TimerTrigger("0 */5 * * * *")]TimerInfo myTimer, ILogger log, ExecutionContext context)
         {
             var tokenProvider = new AzureServiceTokenProvider();
             string accessToken = await tokenProvider.GetAccessTokenAsync("https://database.windows.net/");
