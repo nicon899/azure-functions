@@ -1,34 +1,39 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System.Data;
 using System.Data.SqlClient;
 using Microsoft.Azure.Services.AppAuthentication;
-using System.Threading.Tasks;
 
-namespace ETL
+namespace ETL_HTTP
 {
-    public static class ETL_Insight
+    public static class ETL_HTTPTriggerTranTest
     {
-        [FunctionName("ETL_Insight")]
-        public static async Task Run([TimerTrigger("0 30 * * * *")] TimerInfo myTimer, ILogger log, ExecutionContext context)
+        [FunctionName("ETL_HTTPTriggerTranTest")]
+        public static async Task<IActionResult> Run(
+            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
+            ILogger log, ExecutionContext context)
         {
             var tokenProvider = new AzureServiceTokenProvider();
             string accessToken = await tokenProvider.GetAccessTokenAsync("https://database.windows.net/");
 
-            string[] entities = new string[] { "region", "company", "product", "productFamily", "productLine", "platform", "productVersion", "productVersionPlatform", "contact" };
+            string[] entities = new string[] { "regiondev" };
             foreach (string entity in entities)
             {
-                string sqlPath = Path.Combine(context.FunctionAppDirectory, "sql", $"{entity}.sql");
-                string sqlQuery = File.ReadAllText(sqlPath);
                 log.LogInformation($"Start ETL process for entity: {entity}");
                 try
                 {
-                    long lastUpdate = getLastUpdateOfEntity(entity, accessToken);
-                    log.LogInformation($"Last update of {entity}: {lastUpdate}");
+                    DateTime lastUpdate = getLastUpdateOfEntity(entity, accessToken);
+                    log.LogInformation($"Last update: {lastUpdate.ToString()}");
+                    string sqlPath = Path.Combine(context.FunctionAppDirectory, "sql", $"{entity}.sql");
+                    string sqlQuery = File.ReadAllText(sqlPath);
                     DataTable dataFromSource = extractDataFromSource(entity, sqlQuery, lastUpdate);
-                    log.LogInformation($"Extracted data for {entity}");
+                    log.LogInformation($"Extracted Data from source");
                     loadDataToDWH(dataFromSource, entity, accessToken);
                     log.LogInformation($"Completed ETL for {entity}");
                 }
@@ -37,29 +42,30 @@ namespace ETL
                     log.LogError(ex, $"ERROR execution ETL for {entity}; ExceptionMessage: ${ex.ToString()}");
                 }
             }
+            return new OkObjectResult("responseMessage");
         }
 
-        public static long getLastUpdateOfEntity(string tableName, string accessToken)
+        public static DateTime getLastUpdateOfEntity(string tableName, string accessToken)
         {
             DateTime lastUpdateDateTime;
             using (SqlConnection conn = new SqlConnection(Environment.GetEnvironmentVariable("connectionstringDWH")))
             {
-                conn.AccessToken = accessToken;
+                // conn.AccessToken = accessToken;
                 conn.Open();
                 var sqlQuery = $"SELECT MAX(UPDATED) FROM {tableName}";
                 using (SqlCommand cmd = new SqlCommand(sqlQuery, conn))
                 {
                     object lastUpdateObj = cmd.ExecuteScalar();
-                    if (lastUpdateObj == null || lastUpdateObj == DBNull.Value) { return 0; }
+                    DateTime myDate = DateTime.ParseExact("2009-05-08 14:40:52,531", "yyyy-MM-dd HH:mm:ss,fff",
+                                       System.Globalization.CultureInfo.InvariantCulture);
+                    if (lastUpdateObj == null || lastUpdateObj == DBNull.Value) { return myDate; }
                     lastUpdateDateTime = (DateTime)lastUpdateObj;
+                    return lastUpdateDateTime;
                 }
             }
-            TimeSpan diffToOriginTime = lastUpdateDateTime.ToUniversalTime() - DateTime.UnixEpoch;
-            long lastUpdate = ((long)diffToOriginTime.TotalSeconds);
-            return lastUpdate;
         }
 
-        public static DataTable extractDataFromSource(string entity, string sqlQuery, long lastUpdate)
+        public static DataTable extractDataFromSource(string entity, string sqlQuery, DateTime lastUpdate)
         {
             DataTable dataFromSource = new DataTable();
             using (SqlConnection conn = new SqlConnection(Environment.GetEnvironmentVariable("connectionstringJSM")))
@@ -83,7 +89,7 @@ namespace ETL
         {
             using (SqlConnection conn = new SqlConnection(Environment.GetEnvironmentVariable("connectionstringDWH")))
             {
-                conn.AccessToken = accessToken;
+                //  conn.AccessToken = accessToken;
                 conn.Open();
                 using (SqlTransaction transaction = conn.BeginTransaction())
                 {
@@ -113,5 +119,6 @@ namespace ETL
                 }
             }
         }
+
     }
 }
